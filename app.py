@@ -630,3 +630,18 @@ with tab5:
 
         except Exception as e:
             st.error(f"Excel dosyası okunurken bir hata oluştu: {e}")
+            # --- KODUNUZUN EN ALTI ---
+
+import streamlit as st  # Eğer dosyanın en başında zaten import st varsa bu satırı atlayabilirsiniz
+
+# Dosya indirme butonu
+try:
+    with open("bilgisayar_takip.db", "rb") as fp:
+        st.download_button(
+            label="💾 Güncel Veri Tabanını İndir (.db)",
+            data=fp,
+            file_name="bilgisayar_takip_guncel.db",
+            mime="application/octet-stream"
+        )
+except FileNotFoundError:
+    st.warning("Henüz indirilecek bir veri tabanı dosyası bulunamadı.")
