@@ -2,6 +2,7 @@ import io
 import sqlite3
 import pandas as pd
 import streamlit as st
+from datetime import datetime
 
 # PDF Oluşturma İçin ReportLab Bileşenleri
 from reportlab.lib.pagesizes import A4
@@ -54,7 +55,6 @@ def get_data():
     conn = sqlite3.connect(DB_NAME)
     df = pd.read_sql_query("SELECT * FROM envanter", conn)
     conn.close()
-    # Tablodaki tüm NaN / None değerlerini boş metin ile değiştir
     return df.fillna("")
 
 
@@ -112,13 +112,32 @@ def create_person_pdf(row):
 
     cell_bold = ParagraphStyle('CellBold', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=10, textColor=colors.HexColor("#1F2937"))
     cell_normal = ParagraphStyle('CellNormal', parent=styles['Normal'], fontName='Helvetica', fontSize=10, textColor=colors.HexColor("#374151"))
+    
+    # Hurda açıklaması için özel paragraf stili
+    hurda_text_style = ParagraphStyle(
+        'HurdaTextStyle',
+        parent=styles['Normal'],
+        fontName='Helvetica',
+        fontSize=11,
+        leading=16,
+        alignment=4,  # İki yana yaslı (Justify)
+        textColor=colors.HexColor("#1F2937")
+    )
 
     story = []
 
     # Başlık ve Altbaşlık
     story.append(Paragraph(tr_fix("ENTEGRE TESİSLER BİLGİSAYAR TAKİP ÇİZELGESİ"), title_style))
     story.append(Spacer(1, 4))
-    story.append(Paragraph(tr_fix("PERSONEL DONANIM & SİCİL ZİMMET KARTI"), subtitle_style))
+    
+    kullanim_durumu_val = str(row.get('kullanim_durumu', '')).strip().upper()
+    is_hurda = "HURDA" in kullanim_durumu_val
+
+    if is_hurda:
+        story.append(Paragraph(tr_fix("HURDA MALZEME TESPİT VE BİLDİRİM TUTANAĞI"), subtitle_style))
+    else:
+        story.append(Paragraph(tr_fix("PERSONEL DONANIM & SİCİL ZİMMET KARTI"), subtitle_style))
+        
     story.append(Spacer(1, 10))
     story.append(HRFlowable(width="100%", thickness=2, color=colors.HexColor("#1E3A8A"), spaceAfter=15))
 
@@ -145,15 +164,39 @@ def create_person_pdf(row):
     ]))
 
     story.append(t)
-    story.append(Spacer(1, 40))
+    story.append(Spacer(1, 20))
 
-    # İmza Alanı
-    imza_data = [
-        [Paragraph(tr_fix("<b>Teslim Eden (BT Sorumlusu)</b>"), cell_normal), Paragraph(tr_fix("<b>Teslim Alan (Personel)</b>"), cell_normal)],
-        [Paragraph(tr_fix("Ad Soyad: ...................................."), cell_normal), Paragraph(tr_fix("Ad Soyad: ...................................."), cell_normal)],
-        [Paragraph(tr_fix("İmza: .........................................."), cell_normal), Paragraph(tr_fix("İmza: .........................................."), cell_normal)],
-        [Paragraph(tr_fix("Tarih: ..... / ..... / 20..."), cell_normal), Paragraph(tr_fix("Tarih: ..... / ..... / 20..."), cell_normal)]
-    ]
+    # HURDA DURUMU KONTROLÜ VE ÖZEL TUTANAK METNİ
+    if is_hurda:
+        bolum_adi = row.get('bolumu', '') if row.get('bolumu', '') else "...................."
+        bugun_tarihi = datetime.now().strftime("%d.%m.%Y")
+        
+        hurda_metni = (
+            f"Trakya Birlik Entegre Tesisler Mudurlugu'muz <b>{bolum_adi}</b> bolumunde kullanilmakta iken "
+            f"arizalanan ve tamiri mumkun olmayan yukarida model ve seri no belirtilmis olan urunun "
+            f"hurdaya ayrilmasina karar verilmistir. Is bu tutanak <b>{bugun_tarihi}</b> tarihinde duzenlenmistir."
+        )
+        
+        story.append(Paragraph(tr_fix(hurda_metni), hurda_text_style))
+        story.append(Spacer(1, 30))
+
+        # Hurda İçin Onay/İmza Tablosu
+        imza_data = [
+            [Paragraph(tr_fix("<b>Teslim Eden / İnceleyen</b>"), cell_normal), Paragraph(tr_fix("<b>Onaylayan (Bölüm Sorumlusu)</b>"), cell_normal)],
+            [Paragraph(tr_fix("Ad Soyad: ...................................."), cell_normal), Paragraph(tr_fix("Ad Soyad: ...................................."), cell_normal)],
+            [Paragraph(tr_fix("İmza: .........................................."), cell_normal), Paragraph(tr_fix("İmza: .........................................."), cell_normal)],
+            [Paragraph(f"Tarih: {bugun_tarihi}", cell_normal), Paragraph(f"Tarih: {bugun_tarihi}", cell_normal)]
+        ]
+    else:
+        story.append(Spacer(1, 20))
+        # Standart Zimmet İmza Tablosu
+        imza_data = [
+            [Paragraph(tr_fix("<b>Teslim Eden (BT Sorumlusu)</b>"), cell_normal), Paragraph(tr_fix("<b>Teslim Alan (Personel)</b>"), cell_normal)],
+            [Paragraph(tr_fix("Ad Soyad: ...................................."), cell_normal), Paragraph(tr_fix("Ad Soyad: ...................................."), cell_normal)],
+            [Paragraph(tr_fix("İmza: .........................................."), cell_normal), Paragraph(tr_fix("İmza: .........................................."), cell_normal)],
+            [Paragraph(tr_fix("Tarih: ..... / ..... / 20..."), cell_normal), Paragraph(tr_fix("Tarih: ..... / ..... / 20..."), cell_normal)]
+        ]
+
     imza_table = Table(imza_data, colWidths=[260, 260])
     imza_table.setStyle(TableStyle([
         ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
@@ -385,7 +428,6 @@ with tab3:
                 value=selected_row["bolumu"] if selected_row is not None else "",
             ).upper()
 
-            # İlk elemanı BOŞ olan PC MARKA LİSTESİ
             pc_marka_listesi = ["", "DELL", "LENOVO", "HP", "ASUS", "ACER", "CASPER", "APPLE", "MSI"]
             mevcut_pc_marka = selected_row["pc_marka"] if selected_row is not None else ""
             default_pc_index = pc_marka_listesi.index(mevcut_pc_marka) if mevcut_pc_marka in pc_marka_listesi else 0
@@ -402,7 +444,6 @@ with tab3:
             ).upper()
 
         with col2:
-            # İlk elemanı BOŞ olan MONİTÖR MARKA LİSTESİ
             monitor_marka_listesi = ["", "DELL", "LENOVO", "HP", "ASUS", "ACER", "SAMSUNG", "LG", "PHILIPS", "VIEWSONIC"]
             mevcut_mon_marka = selected_row["monitor_marka"] if selected_row is not None else ""
             default_mon_index = monitor_marka_listesi.index(mevcut_mon_marka) if mevcut_mon_marka in monitor_marka_listesi else 0
@@ -424,8 +465,7 @@ with tab3:
                 value=selected_row["yazici"] if selected_row is not None else "",
             ).upper()
 
-            # Seçmeli alanlar başlarına boş seçenek eklendi
-            isletim_opts = ["", "WINDOWS 11", "WINDOWS 10", "WINDOWS 8", "WINDOWS XP", "DİĞER"]
+            isletim_opts = ["", "WINDOWS 11", "WINDOWS 10", "DİĞER"]
             isletim_sistemi = st.selectbox(
                 "İŞLETİM SİSTEMİ",
                 isletim_opts,
@@ -434,7 +474,7 @@ with tab3:
                 else 0,
             )
 
-            office_opts = ["", "OFFİCE 2016", "OFFİCE 2019", "OFFİCE 2013", "OFFİCE 2010", "DİĞER"]
+            office_opts = ["", "OFFİCE 2016", "OFFİCE 2019", "OFFİCE 365", "OFFİCE 2010", "DİĞER"]
             office_surumu = st.selectbox(
                 "OFFİCE SÜRÜMÜ",
                 office_opts,
@@ -443,7 +483,7 @@ with tab3:
                 else 0,
             )
 
-            virus_opts = ["", "VAR", "YOK", "GÜNCEL DEĞİL"]
+            virus_opts = ["", "VAR", "YOK"]
             virus_koruma = st.selectbox(
                 "VİRÜS KORUMA",
                 virus_opts,
@@ -452,7 +492,7 @@ with tab3:
                 else 0,
             )
 
-            durum_opts = ["", "AKTİF", "PASİF", "YEDEK", "HURDA"]
+            durum_opts = ["", "AKTİF", "PASİF", "HURDA"]
             kullanim_durumu = st.selectbox(
                 "KULLANIM DURUMU",
                 durum_opts,
@@ -630,18 +670,3 @@ with tab5:
 
         except Exception as e:
             st.error(f"Excel dosyası okunurken bir hata oluştu: {e}")
-            # --- KODUNUZUN EN ALTI ---
-
-import streamlit as st  # Eğer dosyanın en başında zaten import st varsa bu satırı atlayabilirsiniz
-
-# Dosya indirme butonu
-try:
-    with open("bilgisayar_takip.db", "rb") as fp:
-        st.download_button(
-            label="💾 Güncel Veri Tabanını İndir (.db)",
-            data=fp,
-            file_name="bilgisayar_takip_guncel.db",
-            mime="application/octet-stream"
-        )
-except FileNotFoundError:
-    st.warning("Henüz indirilecek bir veri tabanı dosyası bulunamadı.")
