@@ -113,18 +113,20 @@ def create_person_pdf(row):
     cell_bold = ParagraphStyle('CellBold', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=10, textColor=colors.HexColor("#1F2937"))
     cell_normal = ParagraphStyle('CellNormal', parent=styles['Normal'], fontName='Helvetica', fontSize=10, textColor=colors.HexColor("#374151"))
     
+    # Hurda açıklaması için özel paragraf stili
     hurda_text_style = ParagraphStyle(
         'HurdaTextStyle',
         parent=styles['Normal'],
         fontName='Helvetica',
         fontSize=11,
         leading=16,
-        alignment=4,
+        alignment=4,  # İki yana yaslı (Justify)
         textColor=colors.HexColor("#1F2937")
     )
 
     story = []
 
+    # Başlık ve Altbaşlık
     story.append(Paragraph(tr_fix("ENTEGRE TESİSLER BİLGİSAYAR TAKİP ÇİZELGESİ"), title_style))
     story.append(Spacer(1, 4))
     
@@ -139,6 +141,7 @@ def create_person_pdf(row):
     story.append(Spacer(1, 10))
     story.append(HRFlowable(width="100%", thickness=2, color=colors.HexColor("#1E3A8A"), spaceAfter=15))
 
+    # Tablo Verileri
     data = [
         [Paragraph(tr_fix("Kayıt ID / Durum"), cell_bold), Paragraph(f"#{row.get('id', '')} / {tr_fix(row.get('kullanim_durumu', ''))}", cell_normal), Paragraph(tr_fix("Bölümü"), cell_bold), Paragraph(tr_fix(row.get('bolumu', '')), cell_normal)],
         [Paragraph(tr_fix("Kullanıcı Adı"), cell_bold), Paragraph(tr_fix(row.get('kullanici_adi', '')), cell_normal), Paragraph(tr_fix("Adı Soyadı"), cell_bold), Paragraph(tr_fix(row.get('adi_soyadi', '')), cell_normal)],
@@ -163,6 +166,7 @@ def create_person_pdf(row):
     story.append(t)
     story.append(Spacer(1, 20))
 
+    # HURDA DURUMU KONTROLÜ VE ÖZEL TUTANAK METNİ
     if is_hurda:
         bolum_adi = row.get('bolumu', '') if row.get('bolumu', '') else "...................."
         bugun_tarihi = datetime.now().strftime("%d.%m.%Y")
@@ -176,6 +180,7 @@ def create_person_pdf(row):
         story.append(Paragraph(tr_fix(hurda_metni), hurda_text_style))
         story.append(Spacer(1, 30))
 
+        # Hurda İçin Onay/İmza Tablosu
         imza_data = [
             [Paragraph(tr_fix("<b>Teslim Eden / İnceleyen</b>"), cell_normal), Paragraph(tr_fix("<b>Onaylayan (Bölüm Sorumlusu)</b>"), cell_normal)],
             [Paragraph(tr_fix("Ad Soyad: ...................................."), cell_normal), Paragraph(tr_fix("Ad Soyad: ...................................."), cell_normal)],
@@ -184,6 +189,7 @@ def create_person_pdf(row):
         ]
     else:
         story.append(Spacer(1, 20))
+        # Standart Zimmet İmza Tablosu
         imza_data = [
             [Paragraph(tr_fix("<b>Teslim Eden (BT Sorumlusu)</b>"), cell_normal), Paragraph(tr_fix("<b>Teslim Alan (Personel)</b>"), cell_normal)],
             [Paragraph(tr_fix("Ad Soyad: ...................................."), cell_normal), Paragraph(tr_fix("Ad Soyad: ...................................."), cell_normal)],
@@ -239,14 +245,13 @@ with col_title:
 
 st.divider()
 
-# --- SEKMELER ---
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+# Sekmeler
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "📋 Envanter Listesi & İndirme",
     "📊 Rapor & Grafikler",
     "➕ Yeni Kayıt / Güncelleme",
     "🗑️ Kayıt Sil",
     "📥 Excel'den Veri Yükle",
-    "💾 Veri Yedekle & Yükle"
 ])
 
 # TAB 1: LİSTELEME, FİLTRELEME VE EXCEL İNDİRME
@@ -291,6 +296,7 @@ with tab1:
     st.divider()
 
     if not df_filtered.empty:
+        # Başlıklar (Yazıcı sütunu eklendi)
         h_col1, h_col2, h_col3, h_col4, h_col5, h_col6, h_col7 = st.columns([1.5, 2, 1.8, 1.8, 1.8, 1.5, 1.2])
         with h_col1: st.markdown("**Kullanıcı Adı**")
         with h_col2: st.markdown("**Adı Soyadı**")
@@ -302,6 +308,7 @@ with tab1:
         
         st.divider()
 
+        # Her kişi için aynı satırda bilgiler ve indirme butonu
         for idx, row in df_filtered.iterrows():
             c1, c2, c3, c4, c5, c6, c7 = st.columns([1.5, 2, 1.8, 1.8, 1.8, 1.5, 1.2])
             
@@ -663,57 +670,3 @@ with tab5:
 
         except Exception as e:
             st.error(f"Excel dosyası okunurken bir hata oluştu: {e}")
-
-# TAB 6: VERİ YEDEKLEME VE GERİ YÜKLEME
-with tab6:
-    st.subheader("💾 Veritabanı Yedekleme ve Geri Yükleme")
-    st.info(
-        "İnternet üzerinde (Streamlit Cloud vb.) çalışan uygulamalarda sunucu kapandığında veya uygulama güncellendiğinde yerel veriler sıfırlanabilir. "
-        "Veri kaybı yaşamamak için düzenli olarak veritabanınızı bilgisayarınıza indirebilir veya aldığınız yedeği geri yükleyebilirsiniz."
-    )
-
-    col_backup, col_restore = st.columns(2)
-
-    # 1. Veritabanını İndir (Yedek Al)
-    with col_backup:
-        st.markdown("### 💾 1. Veritabanı Yedeği İndir")
-        st.caption("Mevcut SQLite veritabanını (.db) bilgisayarınıza indirir.")
-
-        try:
-            with open(DB_NAME, "rb") as db_file:
-                db_bytes = db_file.read()
-
-            tarih_str = datetime.now().strftime("%Y%m%d_%H%M")
-            st.download_button(
-                label="📥 Veritabanı Yedeğini İndir (.db)",
-                data=db_bytes,
-                file_name=f"bilgisayar_takip_backup_{tarih_str}.db",
-                mime="application/x-sqlite3",
-                type="primary",
-            )
-        except Exception as e:
-            st.error(f"Yedek dosyası hazırlanırken hata oluştu: {e}")
-
-    # 2. Veritabanını Yükle (Geri Yükle)
-    with col_restore:
-        st.markdown("### 📤 2. Veritabanı Yedeği Geri Yükle")
-        st.caption("Daha önce indirdiğiniz `.db` dosyasını yükleyerek verileri geri getirir.")
-
-        uploaded_db = st.file_uploader(
-            "Yedek veritabanı dosyasını (.db) seçin", type=["db", "sqlite", "sqlite3"]
-        )
-
-        if uploaded_db is not None:
-            confirm_restore = st.checkbox("Mevcut verilerin üzerine yazılmasını onaylıyorum.")
-            
-            if st.button("🔄 Yedeği Geri Yükle", type="secondary"):
-                if confirm_restore:
-                    try:
-                        with open(DB_NAME, "wb") as f:
-                            f.write(uploaded_db.getbuffer())
-                        st.success("✅ Veritabanı başarıyla geri yüklendi ve güncellendi!")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Veritabanı geri yüklenirken hata oluştu: {e}")
-                else:
-                    st.warning("Lütfen geri yükleme işlemini onaylamak için kutucuğu işaretleyin.")
