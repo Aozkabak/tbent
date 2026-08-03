@@ -17,13 +17,14 @@ st.set_page_config(
     page_icon="💻",
 )
 
-# --- VERİTABANI BAĞLANTISI ---
+# --- VERİTABANI BAĞLANTISI VE OTOMATİK SÜTUN KONTROLÜ ---
 DB_NAME = "bilgisayar_takip.db"
 
 
 def init_db():
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
+    # Tabloyu oluştur (eğer ilk defa çalışıyorsa)
     c.execute("""
         CREATE TABLE IF NOT EXISTS envanter (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -44,6 +45,13 @@ def init_db():
             aciklama TEXT
         )
     """)
+    
+    # Var olan veritabanında 'yazici' sütunu eksikse otomatik olarak ekle
+    c.execute("PRAGMA table_info(envanter)")
+    columns = [column[1] for column in c.fetchall()]
+    if "yazici" not in columns:
+        c.execute("ALTER TABLE envanter ADD COLUMN yazici TEXT")
+
     conn.commit()
     conn.close()
 
@@ -113,20 +121,18 @@ def create_person_pdf(row):
     cell_bold = ParagraphStyle('CellBold', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=10, textColor=colors.HexColor("#1F2937"))
     cell_normal = ParagraphStyle('CellNormal', parent=styles['Normal'], fontName='Helvetica', fontSize=10, textColor=colors.HexColor("#374151"))
     
-    # Hurda açıklaması için özel paragraf stili
     hurda_text_style = ParagraphStyle(
         'HurdaTextStyle',
         parent=styles['Normal'],
         fontName='Helvetica',
         fontSize=11,
         leading=16,
-        alignment=4,  # İki yana yaslı (Justify)
+        alignment=4,
         textColor=colors.HexColor("#1F2937")
     )
 
     story = []
 
-    # Başlık ve Altbaşlık
     story.append(Paragraph(tr_fix("ENTEGRE TESİSLER BİLGİSAYAR TAKİP ÇİZELGESİ"), title_style))
     story.append(Spacer(1, 4))
     
@@ -141,7 +147,6 @@ def create_person_pdf(row):
     story.append(Spacer(1, 10))
     story.append(HRFlowable(width="100%", thickness=2, color=colors.HexColor("#1E3A8A"), spaceAfter=15))
 
-    # Tablo Verileri
     data = [
         [Paragraph(tr_fix("Kayıt ID / Durum"), cell_bold), Paragraph(f"#{row.get('id', '')} / {tr_fix(row.get('kullanim_durumu', ''))}", cell_normal), Paragraph(tr_fix("Bölümü"), cell_bold), Paragraph(tr_fix(row.get('bolumu', '')), cell_normal)],
         [Paragraph(tr_fix("Kullanıcı Adı"), cell_bold), Paragraph(tr_fix(row.get('kullanici_adi', '')), cell_normal), Paragraph(tr_fix("Adı Soyadı"), cell_bold), Paragraph(tr_fix(row.get('adi_soyadi', '')), cell_normal)],
@@ -166,7 +171,6 @@ def create_person_pdf(row):
     story.append(t)
     story.append(Spacer(1, 20))
 
-    # HURDA DURUMU KONTROLÜ VE ÖZEL TUTANAK METNİ
     if is_hurda:
         bolum_adi = row.get('bolumu', '') if row.get('bolumu', '') else "...................."
         bugun_tarihi = datetime.now().strftime("%d.%m.%Y")
@@ -180,7 +184,6 @@ def create_person_pdf(row):
         story.append(Paragraph(tr_fix(hurda_metni), hurda_text_style))
         story.append(Spacer(1, 30))
 
-        # Hurda İçin Onay/İmza Tablosu
         imza_data = [
             [Paragraph(tr_fix("<b>Teslim Eden / İnceleyen</b>"), cell_normal), Paragraph(tr_fix("<b>Onaylayan (Bölüm Sorumlusu)</b>"), cell_normal)],
             [Paragraph(tr_fix("Ad Soyad: ...................................."), cell_normal), Paragraph(tr_fix("Ad Soyad: ...................................."), cell_normal)],
@@ -189,7 +192,6 @@ def create_person_pdf(row):
         ]
     else:
         story.append(Spacer(1, 20))
-        # Standart Zimmet İmza Tablosu
         imza_data = [
             [Paragraph(tr_fix("<b>Teslim Eden (BT Sorumlusu)</b>"), cell_normal), Paragraph(tr_fix("<b>Teslim Alan (Personel)</b>"), cell_normal)],
             [Paragraph(tr_fix("Ad Soyad: ...................................."), cell_normal), Paragraph(tr_fix("Ad Soyad: ...................................."), cell_normal)],
@@ -296,7 +298,6 @@ with tab1:
     st.divider()
 
     if not df_filtered.empty:
-        # Başlıklar (Yazıcı sütunu eklendi)
         h_col1, h_col2, h_col3, h_col4, h_col5, h_col6, h_col7 = st.columns([1.5, 2, 1.8, 1.8, 1.8, 1.5, 1.2])
         with h_col1: st.markdown("**Kullanıcı Adı**")
         with h_col2: st.markdown("**Adı Soyadı**")
@@ -308,7 +309,6 @@ with tab1:
         
         st.divider()
 
-        # Her kişi için aynı satırda bilgiler ve indirme butonu
         for idx, row in df_filtered.iterrows():
             c1, c2, c3, c4, c5, c6, c7 = st.columns([1.5, 2, 1.8, 1.8, 1.8, 1.5, 1.2])
             
@@ -514,67 +514,72 @@ with tab3:
             conn = sqlite3.connect(DB_NAME)
             c = conn.cursor()
 
-            if islem_turu == "Yeni Kayıt":
-                c.execute(
-                    """
-                    INSERT INTO envanter (
-                        kullanici_adi, adi_soyadi, bolumu, pc_marka, pc_model, pc_seri_no,
-                        monitor_marka, monitor_model, monitor_seri_no, yazici, isletim_sistemi, office_surumu,
-                        virus_koruma, kullanim_durumu, aciklama
+            try:
+                if islem_turu == "Yeni Kayıt":
+                    c.execute(
+                        """
+                        INSERT INTO envanter (
+                            kullanici_adi, adi_soyadi, bolumu, pc_marka, pc_model, pc_seri_no,
+                            monitor_marka, monitor_model, monitor_seri_no, yazici, isletim_sistemi, office_surumu,
+                            virus_koruma, kullanim_durumu, aciklama
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                        (
+                            kullanici_adi,
+                            adi_soyadi,
+                            bolumu,
+                            pc_marka,
+                            pc_model,
+                            pc_seri_no,
+                            monitor_marka,
+                            monitor_model,
+                            monitor_seri_no,
+                            yazici,
+                            isletim_sistemi,
+                            office_surumu,
+                            virus_koruma,
+                            kullanim_durumu,
+                            aciklama,
+                        ),
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                    (
-                        kullanici_adi,
-                        adi_soyadi,
-                        bolumu,
-                        pc_marka,
-                        pc_model,
-                        pc_seri_no,
-                        monitor_marka,
-                        monitor_model,
-                        monitor_seri_no,
-                        yazici,
-                        isletim_sistemi,
-                        office_surumu,
-                        virus_koruma,
-                        kullanim_durumu,
-                        aciklama,
-                    ),
-                )
-                st.success("Yeni kayıt başarıyla eklendi!")
-            else:
-                c.execute(
-                    """
-                    UPDATE envanter SET 
-                        kullanici_adi=?, adi_soyadi=?, bolumu=?, pc_marka=?, pc_model=?, pc_seri_no=?,
-                        monitor_marka=?, monitor_model=?, monitor_seri_no=?, yazici=?, isletim_sistemi=?, office_surumu=?,
-                        virus_koruma=?, kullanim_durumu=?, aciklama=?
-                    WHERE id=?
-                """,
-                    (
-                        kullanici_adi,
-                        adi_soyadi,
-                        bolumu,
-                        pc_marka,
-                        pc_model,
-                        pc_seri_no,
-                        monitor_marka,
-                        monitor_model,
-                        monitor_seri_no,
-                        yazici,
-                        isletim_sistemi,
-                        office_surumu,
-                        virus_koruma,
-                        kullanim_durumu,
-                        aciklama,
-                        selected_id,
-                    ),
-                )
-                st.success("Kayıt başarıyla güncellendi!")
+                    st.success("Yeni kayıt başarıyla eklendi!")
+                else:
+                    c.execute(
+                        """
+                        UPDATE envanter SET 
+                            kullanici_adi=?, adi_soyadi=?, bolumu=?, pc_marka=?, pc_model=?, pc_seri_no=?,
+                            monitor_marka=?, monitor_model=?, monitor_seri_no=?, yazici=?, isletim_sistemi=?, office_surumu=?,
+                            virus_koruma=?, kullanim_durumu=?, aciklama=?
+                        WHERE id=?
+                    """,
+                        (
+                            kullanici_adi,
+                            adi_soyadi,
+                            bolumu,
+                            pc_marka,
+                            pc_model,
+                            pc_seri_no,
+                            monitor_marka,
+                            monitor_model,
+                            monitor_seri_no,
+                            yazici,
+                            isletim_sistemi,
+                            office_surumu,
+                            virus_koruma,
+                            kullanim_durumu,
+                            aciklama,
+                            selected_id,
+                        ),
+                    )
+                    st.success("Kayıt başarıyla güncellendi!")
 
-            conn.commit()
-            conn.close()
+                conn.commit()
+            except Exception as e:
+                st.error(f"Kayıt ekleme/güncelleme hatası: {e}")
+            finally:
+                conn.close()
+
             st.rerun()
 
 # TAB 4: KAYIT SİLME
