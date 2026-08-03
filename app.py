@@ -1,4 +1,5 @@
 import io
+import os
 import sqlite3
 import pandas as pd
 import streamlit as st
@@ -17,14 +18,25 @@ st.set_page_config(
     page_icon="💻",
 )
 
-# --- VERİTABANI BAĞLANTISI VE OTOMATİK SÜTUN KONTROLÜ ---
+# --- VERİTABANI DOSYA DÜZENLEMESİ ---
 DB_NAME = "bilgisayar_takip.db"
+
+# Yan menüde (Sidebar) Dosya Yükleme ve İndirme Yönetimi
+st.sidebar.title("💾 Veri Yönetimi")
+st.sidebar.info("Uygulama sunucu sıfırlamalarında verileri korumak için bilgisayarınızdaki `.db` dosyasını yükleyip indirebilirsiniz.")
+
+uploaded_db = st.sidebar.file_uploader("📂 Mevcut .db Dosyasını Yükle", type=["db", "sqlite", "sqlite3"])
+
+if uploaded_db is not None:
+    # Kullanıcı kendi veritabanı dosyasını yüklediyse onu kaydet
+    with open(DB_NAME, "wb") as f:
+        f.write(uploaded_db.getbuffer())
+    st.sidebar.success("✅ Yüklenen veritabanı aktif edildi!")
 
 
 def init_db():
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
-    # Tabloyu oluştur (eğer ilk defa çalışıyorsa)
     c.execute("""
         CREATE TABLE IF NOT EXISTS envanter (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -45,17 +57,11 @@ def init_db():
             aciklama TEXT
         )
     """)
-    
-    # Var olan veritabanında 'yazici' sütunu eksikse otomatik olarak ekle
-    c.execute("PRAGMA table_info(envanter)")
-    columns = [column[1] for column in c.fetchall()]
-    if "yazici" not in columns:
-        c.execute("ALTER TABLE envanter ADD COLUMN yazici TEXT")
-
     conn.commit()
     conn.close()
 
 
+# Tablo yoksa oluştur
 init_db()
 
 
@@ -65,6 +71,19 @@ def get_data():
     conn.close()
     return df.fillna("")
 
+
+# Güncel Veritabanı İndirme Butonu (Sidebar)
+if os.path.exists(DB_NAME):
+    with open(DB_NAME, "rb") as f:
+        db_bytes = f.read()
+    st.sidebar.download_button(
+        label="📥 Güncel .db Dosyasını İndir",
+        data=db_bytes,
+        file_name="bilgisayar_takip.db",
+        mime="application/x-sqlite3",
+        use_container_width=True,
+        type="primary"
+    )
 
 # --- TÜRKÇE KARAKTER DÜZELTME FONKSİYONU ---
 def tr_fix(text):
@@ -267,14 +286,14 @@ with tab1:
             "🔍 Kullanıcı Adı, Ad Soyad, Bölüm, Yazıcı veya Seri No ile Ara:",
             key="search_input",
         )
-        if search:
+        if search and not df.empty:
             df_filtered = df[
-                df["kullanici_adi"].str.contains(search, case=False)
-                | df["adi_soyadi"].str.contains(search, case=False)
-                | df["bolumu"].str.contains(search, case=False)
-                | df["yazici"].str.contains(search, case=False)
-                | df["pc_seri_no"].str.contains(search, case=False)
-                | df["monitor_seri_no"].str.contains(search, case=False)
+                df["kullanici_adi"].astype(str).str.contains(search, case=False)
+                | df["adi_soyadi"].astype(str).str.contains(search, case=False)
+                | df["bolumu"].astype(str).str.contains(search, case=False)
+                | df["yazici"].astype(str).str.contains(search, case=False)
+                | df["pc_seri_no"].astype(str).str.contains(search, case=False)
+                | df["monitor_seri_no"].astype(str).str.contains(search, case=False)
             ]
         else:
             df_filtered = df.copy()
@@ -402,9 +421,9 @@ with tab3:
             "Güncellenecek Kaydı Seçin:",
             df_current["id"].astype(str)
             + " - "
-            + df_current["kullanici_adi"]
+            + df_current["kullanici_adi"].astype(str)
             + " ("
-            + df_current["adi_soyadi"]
+            + df_current["adi_soyadi"].astype(str)
             + ")",
             key="edit_select",
         )
@@ -514,72 +533,67 @@ with tab3:
             conn = sqlite3.connect(DB_NAME)
             c = conn.cursor()
 
-            try:
-                if islem_turu == "Yeni Kayıt":
-                    c.execute(
-                        """
-                        INSERT INTO envanter (
-                            kullanici_adi, adi_soyadi, bolumu, pc_marka, pc_model, pc_seri_no,
-                            monitor_marka, monitor_model, monitor_seri_no, yazici, isletim_sistemi, office_surumu,
-                            virus_koruma, kullanim_durumu, aciklama
-                        )
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                        (
-                            kullanici_adi,
-                            adi_soyadi,
-                            bolumu,
-                            pc_marka,
-                            pc_model,
-                            pc_seri_no,
-                            monitor_marka,
-                            monitor_model,
-                            monitor_seri_no,
-                            yazici,
-                            isletim_sistemi,
-                            office_surumu,
-                            virus_koruma,
-                            kullanim_durumu,
-                            aciklama,
-                        ),
+            if islem_turu == "Yeni Kayıt":
+                c.execute(
+                    """
+                    INSERT INTO envanter (
+                        kullanici_adi, adi_soyadi, bolumu, pc_marka, pc_model, pc_seri_no,
+                        monitor_marka, monitor_model, monitor_seri_no, yazici, isletim_sistemi, office_surumu,
+                        virus_koruma, kullanim_durumu, aciklama
                     )
-                    st.success("Yeni kayıt başarıyla eklendi!")
-                else:
-                    c.execute(
-                        """
-                        UPDATE envanter SET 
-                            kullanici_adi=?, adi_soyadi=?, bolumu=?, pc_marka=?, pc_model=?, pc_seri_no=?,
-                            monitor_marka=?, monitor_model=?, monitor_seri_no=?, yazici=?, isletim_sistemi=?, office_surumu=?,
-                            virus_koruma=?, kullanim_durumu=?, aciklama=?
-                        WHERE id=?
-                    """,
-                        (
-                            kullanici_adi,
-                            adi_soyadi,
-                            bolumu,
-                            pc_marka,
-                            pc_model,
-                            pc_seri_no,
-                            monitor_marka,
-                            monitor_model,
-                            monitor_seri_no,
-                            yazici,
-                            isletim_sistemi,
-                            office_surumu,
-                            virus_koruma,
-                            kullanim_durumu,
-                            aciklama,
-                            selected_id,
-                        ),
-                    )
-                    st.success("Kayıt başarıyla güncellendi!")
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                    (
+                        kullanici_adi,
+                        adi_soyadi,
+                        bolumu,
+                        pc_marka,
+                        pc_model,
+                        pc_seri_no,
+                        monitor_marka,
+                        monitor_model,
+                        monitor_seri_no,
+                        yazici,
+                        isletim_sistemi,
+                        office_surumu,
+                        virus_koruma,
+                        kullanim_durumu,
+                        aciklama,
+                    ),
+                )
+                st.success("Yeni kayıt başarıyla eklendi! Sol menüden `.db` dosyasını indirmeyi unutmayın.")
+            else:
+                c.execute(
+                    """
+                    UPDATE envanter SET 
+                        kullanici_adi=?, adi_soyadi=?, bolumu=?, pc_marka=?, pc_model=?, pc_seri_no=?,
+                        monitor_marka=?, monitor_model=?, monitor_seri_no=?, yazici=?, isletim_sistemi=?, office_surumu=?,
+                        virus_koruma=?, kullanim_durumu=?, aciklama=?
+                    WHERE id=?
+                """,
+                    (
+                        kullanici_adi,
+                        adi_soyadi,
+                        bolumu,
+                        pc_marka,
+                        pc_model,
+                        pc_seri_no,
+                        monitor_marka,
+                        monitor_model,
+                        monitor_seri_no,
+                        yazici,
+                        isletim_sistemi,
+                        office_surumu,
+                        virus_koruma,
+                        kullanim_durumu,
+                        aciklama,
+                        selected_id,
+                    ),
+                )
+                st.success("Kayıt başarıyla güncellendi! Sol menüden `.db` dosyasını indirmeyi unutmayın.")
 
-                conn.commit()
-            except Exception as e:
-                st.error(f"Kayıt ekleme/güncelleme hatası: {e}")
-            finally:
-                conn.close()
-
+            conn.commit()
+            conn.close()
             st.rerun()
 
 # TAB 4: KAYIT SİLME
@@ -594,9 +608,9 @@ with tab4:
             "Silmek İstediğiniz Kaydı Seçin:",
             df_delete["id"].astype(str)
             + " - "
-            + df_delete["kullanici_adi"]
+            + df_delete["kullanici_adi"].astype(str)
             + " ("
-            + df_delete["adi_soyadi"]
+            + df_delete["adi_soyadi"].astype(str)
             + ")",
             key="delete_select",
         )
@@ -611,7 +625,7 @@ with tab4:
                 c.execute("DELETE FROM envanter WHERE id=?", (delete_id,))
                 conn.commit()
                 conn.close()
-                st.success(f"ID: {delete_id} numaralı kayıt başarıyla silindi!")
+                st.success(f"ID: {delete_id} numaralı kayıt başarıyla silindi! Sol menüden `.db` dosyasını indirmeyi unutmayın.")
                 st.rerun()
             else:
                 st.warning("Lütfen silme işlemini onaylamak için kutucuğu işaretleyin.")
@@ -669,7 +683,7 @@ with tab5:
                 conn.close()
 
                 st.success(
-                    f"✅ Toplam {len(excel_df)} adet kayıt veritabanına başarıyla aktarıldı!"
+                    f"✅ Toplam {len(excel_df)} adet kayıt veritabanına başarıyla aktarıldı! Sol menüden `.db` dosyasını indirmeyi unutmayın."
                 )
                 st.rerun()
 
